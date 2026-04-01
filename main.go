@@ -190,6 +190,7 @@ func main() {
 		}
 	}
 
+	promptText = strings.TrimSpace(promptText)
 	if promptText == "" {
 		fatal("no prompt provided (use --prompt, --prompt-file, or pipe to stdin)")
 	}
@@ -313,11 +314,11 @@ func main() {
 		if err := scanner.Err(); err != nil {
 			fatal("reading stream: %v", err)
 		}
+		fmt.Println()
 
 		if *verbose {
 			tTotal := time.Since(tStart)
 
-			fmt.Fprintln(os.Stderr)
 			fmt.Fprintf(os.Stderr, "TTFT:          %s\n", ttft.Round(time.Millisecond))
 			fmt.Fprintf(os.Stderr, "Total time:    %s\n", tTotal.Round(time.Millisecond))
 			if lastUsage != nil {
@@ -346,9 +347,10 @@ func main() {
 		if err := json.Unmarshal(rawBody, &result); err != nil {
 			fatal("decoding response: %v", err)
 		}
-		if len(result.Choices) > 0 {
-			fmt.Print(result.Choices[0].Message.Content)
+		if len(result.Choices) == 0 {
+			fatal("server returned no choices")
 		}
+		fmt.Println(result.Choices[0].Message.Content)
 
 		if *verbose {
 			fmt.Fprintf(os.Stderr, "Latency:       %s\n", tTotal.Round(time.Millisecond))
