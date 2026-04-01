@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// stringSlice implements flag.Value for repeatable --image flags.
+// stringSlice implements flag.Value for repeatable flags.
 type stringSlice []string
 
 func (s *stringSlice) String() string { return strings.Join(*s, ", ") }
@@ -113,24 +113,25 @@ func fatal(format string, a ...any) {
 func main() {
 	var images stringSlice
 
-	host := flag.String("host", "127.0.0.1", "llama-server host")
-	port := flag.Int("port", 8080, "llama-server port")
+	host := flag.String("host", "127.0.0.1", "server host")
+	port := flag.Int("port", 8080, "server port")
+	token := flag.String("token", "", "bearer token for Authorization header")
 	promptFile := flag.String("prompt-file", "", "path to prompt text file (use - for stdin)")
 	prompt := flag.String("prompt", "", "prompt text (alternative to --prompt-file)")
 	stream := flag.Bool("stream", false, "enable streaming output")
-	stats := flag.Bool("stats", false, "print timing and token stats to stderr")
-	temp := flag.Float64("temp", 0.7, "sampling temperature")
+	verbose := flag.Bool("verbose", false, "print timing and token stats to stderr")
+	temp := flag.Float64("temp", -1, "sampling temperature (default: not sent)")
 	timeout := flag.Int("timeout", 300, "HTTP timeout in seconds (0 = no timeout)")
 	flag.Var(&images, "image", "image file path (repeatable)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] [--image FILE ...]\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "A client for llama-server with vision/multimodal support.\n")
+		fmt.Fprintf(os.Stderr, "Client for OpenAI-compatible chat completion APIs with vision support.\n")
 		fmt.Fprintf(os.Stderr, "Prompt is read from --prompt, --prompt-file, or stdin.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.VisitAll(func(f *flag.Flag) {
 			fmt.Fprintf(os.Stderr, "  --%-12s %s", f.Name, f.Usage)
-			if f.DefValue != "" && f.DefValue != "false" && f.DefValue != "[]" {
+			if f.DefValue != "" && f.DefValue != "false" && f.DefValue != "[]" && f.DefValue != "-1" {
 				fmt.Fprintf(os.Stderr, " (default %s)", f.DefValue)
 			}
 			fmt.Fprintln(os.Stderr)
@@ -138,7 +139,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  %s --image photo.jpg --prompt 'Describe this image'\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  echo 'Describe this' | %s --image photo.jpg\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s --image a.png --image b.png --prompt-file prompt.txt --stream --stats\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --token sk-xxx --image a.png --prompt-file prompt.txt --stream --verbose\n", os.Args[0])
 	}
 
 	flag.Parse()
@@ -161,9 +162,8 @@ func main() {
 		}
 		promptText = string(data)
 	default:
-		// try stdin if it's not a terminal
 		fi, _ := os.Stdin.Stat()
-		if fi.Mode()&os.ModeCharDevice == 0 {
+		if fi != nil && fi.Mode()&os.ModeCharDevice == 0 {
 			data, err := io.ReadAll(os.Stdin)
 			if err != nil {
 				fatal("reading stdin: %v", err)
@@ -194,7 +194,9 @@ func main() {
 	req := ChatRequest{
 		Messages: []Message{{Role: "user", Content: parts}},
 		Stream:   *stream,
-		Temperature: temp,
+	}
+	if *temp >= 0 {
+		req.Temperature = temp
 	}
 
 	body, err := json.Marshal(req)
@@ -209,6 +211,9 @@ func main() {
 		fatal("creating request: %v", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if *token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+*token)
+	}
 
 	client := &http.Client{}
 	if *timeout > 0 {
@@ -231,7 +236,7 @@ func main() {
 
 	if *stream {
 		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1 MB buffer
+		scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 
 		var ttft time.Duration
 		firstToken := true
@@ -269,7 +274,7 @@ func main() {
 			fatal("reading stream: %v", err)
 		}
 
-		if *stats {
+		if *verbose {
 			tTotal := time.Since(tStart)
 
 			fmt.Fprintln(os.Stderr)
@@ -306,7 +311,7 @@ func main() {
 			fmt.Print(result.Choices[0].Message.Content)
 		}
 
-		if *stats {
+		if *verbose {
 			fmt.Fprintf(os.Stderr, "Latency:       %s\n", tTotal.Round(time.Millisecond))
 			if result.Usage != nil {
 				fmt.Fprintf(os.Stderr, "Prompt tokens: %d\n", result.Usage.PromptTokens)
