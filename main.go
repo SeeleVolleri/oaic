@@ -41,17 +41,31 @@ type Message struct {
 	Content json.RawMessage `json:"content"`
 }
 
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
 type ChatRequest struct {
-	Model       string    `json:"model,omitempty"`
-	Messages    []Message `json:"messages"`
-	Stream      bool      `json:"stream"`
-	Temperature *float64  `json:"temperature,omitempty"`
+	Model         string         `json:"model,omitempty"`
+	Messages      []Message      `json:"messages"`
+	Stream        bool           `json:"stream"`
+	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
+	Temperature   *float64       `json:"temperature,omitempty"`
 }
 
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+}
+
+type Timings struct {
+	PromptN            int     `json:"prompt_n"`
+	PromptMS           float64 `json:"prompt_ms"`
+	PromptPerSecond    float64 `json:"prompt_per_second"`
+	PredictedN         int     `json:"predicted_n"`
+	PredictedMS        float64 `json:"predicted_ms"`
+	PredictedPerSecond float64 `json:"predicted_per_second"`
 }
 
 type Choice struct {
@@ -64,6 +78,7 @@ type Choice struct {
 type ChatResponse struct {
 	Choices []Choice `json:"choices"`
 	Usage   *Usage   `json:"usage,omitempty"`
+	Timings *Timings `json:"timings,omitempty"`
 }
 
 type StreamDelta struct {
@@ -78,6 +93,7 @@ type StreamChoice struct {
 type StreamChunk struct {
 	Choices []StreamChoice `json:"choices"`
 	Usage   *Usage         `json:"usage,omitempty"`
+	Timings *Timings       `json:"timings,omitempty"`
 }
 
 // mimeByExt maps file extensions to MIME types.
@@ -210,6 +226,9 @@ func main() {
 		Messages: messages,
 		Stream:   *stream,
 	}
+	if *stream && *verbose {
+		req.StreamOptions = &StreamOptions{IncludeUsage: true}
+	}
 	if *temp >= 0 {
 		req.Temperature = temp
 	}
@@ -259,8 +278,8 @@ func main() {
 
 		var ttft time.Duration
 		firstToken := true
-		tokenCount := 0
 		var lastUsage *Usage
+		var lastTimings *Timings
 
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -278,13 +297,15 @@ func main() {
 			if chunk.Usage != nil {
 				lastUsage = chunk.Usage
 			}
+			if chunk.Timings != nil {
+				lastTimings = chunk.Timings
+			}
 			for _, c := range chunk.Choices {
 				if c.Delta.Content != "" {
 					if firstToken {
 						ttft = time.Since(tStart)
 						firstToken = false
 					}
-					tokenCount++
 					fmt.Print(c.Delta.Content)
 				}
 			}
@@ -299,20 +320,19 @@ func main() {
 			fmt.Fprintln(os.Stderr)
 			fmt.Fprintf(os.Stderr, "TTFT:          %s\n", ttft.Round(time.Millisecond))
 			fmt.Fprintf(os.Stderr, "Total time:    %s\n", tTotal.Round(time.Millisecond))
-			if tokenCount > 1 {
-				genTime := tTotal - ttft
-				if genTime > 0 {
-					tps := float64(tokenCount-1) / genTime.Seconds()
-					fmt.Fprintf(os.Stderr, "Tokens:        %d\n", tokenCount)
-					fmt.Fprintf(os.Stderr, "Speed:         %.2f tok/s\n", tps)
-				}
-			} else if tokenCount > 0 {
-				fmt.Fprintf(os.Stderr, "Tokens:        %d\n", tokenCount)
-			}
 			if lastUsage != nil {
 				fmt.Fprintf(os.Stderr, "Prompt tokens: %d\n", lastUsage.PromptTokens)
 				fmt.Fprintf(os.Stderr, "Compl tokens:  %d\n", lastUsage.CompletionTokens)
 				fmt.Fprintf(os.Stderr, "Total tokens:  %d\n", lastUsage.TotalTokens)
+			}
+			if lastTimings != nil && lastTimings.PredictedPerSecond > 0 {
+				fmt.Fprintf(os.Stderr, "Speed:         %.2f tok/s (server)\n", lastTimings.PredictedPerSecond)
+			} else {
+				genTime := tTotal - ttft
+				if genTime > 0 && lastUsage != nil && lastUsage.CompletionTokens > 0 {
+					tps := float64(lastUsage.CompletionTokens) / genTime.Seconds()
+					fmt.Fprintf(os.Stderr, "Speed:         %.2f tok/s (client)\n", tps)
+				}
 			}
 		}
 	} else {
@@ -336,10 +356,12 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Prompt tokens: %d\n", result.Usage.PromptTokens)
 				fmt.Fprintf(os.Stderr, "Compl tokens:  %d\n", result.Usage.CompletionTokens)
 				fmt.Fprintf(os.Stderr, "Total tokens:  %d\n", result.Usage.TotalTokens)
-				if tTotal.Seconds() > 0 {
-					tps := float64(result.Usage.CompletionTokens) / tTotal.Seconds()
-					fmt.Fprintf(os.Stderr, "Speed:         %.2f tok/s\n", tps)
-				}
+			}
+			if result.Timings != nil && result.Timings.PredictedPerSecond > 0 {
+				fmt.Fprintf(os.Stderr, "Speed:         %.2f tok/s (server)\n", result.Timings.PredictedPerSecond)
+			} else if result.Usage != nil && tTotal.Seconds() > 0 {
+				tps := float64(result.Usage.CompletionTokens) / tTotal.Seconds()
+				fmt.Fprintf(os.Stderr, "Speed:         %.2f tok/s (client)\n", tps)
 			}
 		}
 	}
