@@ -42,6 +42,7 @@ type Message struct {
 }
 
 type ChatRequest struct {
+	Model       string    `json:"model,omitempty"`
 	Messages    []Message `json:"messages"`
 	Stream      bool      `json:"stream"`
 	Temperature *float64  `json:"temperature,omitempty"`
@@ -115,6 +116,7 @@ func main() {
 
 	host := flag.String("host", "127.0.0.1", "server host")
 	port := flag.Int("port", 8080, "server port")
+	model := flag.String("model", "", "model name (e.g. gpt-4o, llama3)")
 	token := flag.String("token", "", "bearer token for Authorization header")
 	promptFile := flag.String("prompt-file", "", "path to prompt text file (use - for stdin)")
 	prompt := flag.String("prompt", "", "prompt text (alternative to --prompt-file)")
@@ -192,6 +194,7 @@ func main() {
 	}
 
 	req := ChatRequest{
+		Model:    *model,
 		Messages: []Message{{Role: "user", Content: parts}},
 		Stream:   *stream,
 	}
