@@ -114,8 +114,7 @@ func fatal(format string, a ...any) {
 func main() {
 	var images stringSlice
 
-	host := flag.String("host", "127.0.0.1", "server host")
-	port := flag.Int("port", 8080, "server port")
+	baseURL := flag.String("url", "http://127.0.0.1:8080", "base URL of the API server")
 	model := flag.String("model", "", "model name (e.g. gpt-4o, llama3)")
 	token := flag.String("token", "", "bearer token for Authorization header")
 	promptFile := flag.String("prompt-file", "", "path to prompt text file (use - for stdin)")
@@ -141,7 +140,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  %s --image photo.jpg --prompt 'Describe this image'\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  echo 'Describe this' | %s --image photo.jpg\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s --token sk-xxx --image a.png --prompt-file prompt.txt --stream --verbose\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --url https://api.example.com --model gpt-4o --image a.png --prompt-file prompt.txt --stream\n", os.Args[0])
 	}
 
 	flag.Parse()
@@ -207,7 +206,7 @@ func main() {
 		fatal("marshaling request: %v", err)
 	}
 
-	url := fmt.Sprintf("http://%s:%d/v1/chat/completions", *host, *port)
+	url := strings.TrimRight(*baseURL, "/") + "/v1/chat/completions"
 
 	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
 	if err != nil {
