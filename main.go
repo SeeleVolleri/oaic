@@ -37,8 +37,8 @@ type ContentPart struct {
 }
 
 type Message struct {
-	Role    string        `json:"role"`
-	Content []ContentPart `json:"content"`
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
 }
 
 type ChatRequest struct {
@@ -119,6 +119,7 @@ func main() {
 	token := flag.String("token", "", "bearer token for Authorization header")
 	promptFile := flag.String("prompt-file", "", "path to prompt text file (use - for stdin)")
 	prompt := flag.String("prompt", "", "prompt text (alternative to --prompt-file)")
+	systemPrompt := flag.String("system-prompt", "", "system prompt text")
 	stream := flag.Bool("stream", false, "enable streaming output")
 	verbose := flag.Bool("verbose", false, "print timing and token stats to stderr")
 	temp := flag.Float64("temp", -1, "sampling temperature (default: not sent)")
@@ -192,9 +193,21 @@ func main() {
 		})
 	}
 
+	userContent, err := json.Marshal(parts)
+	if err != nil {
+		fatal("marshaling content: %v", err)
+	}
+
+	var messages []Message
+	if *systemPrompt != "" {
+		sysContent, _ := json.Marshal(*systemPrompt)
+		messages = append(messages, Message{Role: "system", Content: sysContent})
+	}
+	messages = append(messages, Message{Role: "user", Content: userContent})
+
 	req := ChatRequest{
 		Model:    *model,
-		Messages: []Message{{Role: "user", Content: parts}},
+		Messages: messages,
 		Stream:   *stream,
 	}
 	if *temp >= 0 {
