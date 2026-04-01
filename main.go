@@ -116,7 +116,7 @@ func main() {
 
 	baseURL := flag.String("url", "http://127.0.0.1:8080", "base URL of the API server")
 	model := flag.String("model", "", "model name (e.g. gpt-4o, llama3)")
-	token := flag.String("token", "", "bearer token for Authorization header")
+	token := flag.String("token", "", "bearer token (default: OPENAI_API_KEY env)")
 	promptFile := flag.String("prompt-file", "", "path to prompt text file (use - for stdin)")
 	prompt := flag.String("prompt", "", "prompt text (alternative to --prompt-file)")
 	systemPrompt := flag.String("system-prompt", "", "system prompt text")
@@ -226,8 +226,12 @@ func main() {
 		fatal("creating request: %v", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	if *token != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+*token)
+	authToken := *token
+	if authToken == "" {
+		authToken = os.Getenv("OPENAI_API_KEY")
+	}
+	if authToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+authToken)
 	}
 
 	client := &http.Client{}
